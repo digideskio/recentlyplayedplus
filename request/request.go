@@ -1,5 +1,17 @@
 package request
 
+// LimitedDoer is an object representing a task to be performed asynchronously,
+// at a time which is managed by a Limiter object.
+// When the Limiter deems that there is allowance for another task to be performed,
+// this interface's Do() method is called.
+type LimitedDoer interface {
+	//Performs the task that this object... does. Called by the limiter when there
+	// is allowance for the task to be done in the given region.
+	Do()
+	// Returns the region that this task should be performed in.
+	Region() string
+}
+
 // Request contains information about an HTTP request to make to the Riot API.
 // Executing a request will queue it against the respective development key's
 // request rate, making sure it does not exceed the rate.
@@ -24,6 +36,10 @@ func GetMatchlist(region string, summonerid int64, apiKey string) Matchlist {
 	return Matchlist{}
 }
 
-func (r *request) do() {
+func (r *request) Do() {
 
+}
+
+func (r *request) Region() string {
+	return r.region
 }

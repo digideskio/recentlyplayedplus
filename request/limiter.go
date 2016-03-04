@@ -18,8 +18,10 @@ type RateInfo struct {
 	period uint32
 }
 
-// Singleton rate limiter construct.
-type limiter struct {
+// Limiter restricts the rate at which incoming LimitedDoer objects can perform
+// their tasks. The rates to which limits are held can be split into distinct
+// regions (as opposed to holding many limiters).
+type Limiter struct {
 	regions      map[string]*region
 	clock        uint64
 	secondTicker <-chan time.Time
@@ -29,7 +31,10 @@ type limiter struct {
 type region struct {
 	rates []rate
 	//outstanding requests for this region
-	requests *lang.Queue
+	//TODO: This queue is synchronized. It doesn't need to be because sync
+	// is handled at the limiter level (because of the clock). So, I'll switch
+	// this out when I have time to implement my own non-thread-safe queue.
+	tasks *lang.Queue
 }
 
 type rate struct {
@@ -46,10 +51,10 @@ type rate struct {
 	period uint32
 }
 
-var lim *limiter
+var lim *Limiter
 
 func init() {
-	lim = &limiter{
+	lim = &Limiter{
 		regions:      make(map[string]*region),
 		secondTicker: time.Tick(1 * time.Second),
 	}
@@ -76,20 +81,38 @@ func (r *rate) tick() {
 	r.thisTick = 0
 }
 
-// Requests call this. This is really the only function that should be called
-// from outside of this file.
-func (l *limiter) enqueue(request request) error {
+// Add Region registers with this limiter object a new region with the called
+// ${name}. Errs if the region to add is already registered with this limiter.
+func (l *Limiter) AddRegion(name string) error {
+	_, alreadyExists := l.regions[name]
+	if alreadyExists {
+		return fmt.Errorf("Region %s already exists!", name)
+	}
+	l.regions[name] = &region{
+		tasks: lang.NewQueue(),
+		rates: nil,
+	}
+	return nil
+}
+
+func (l *Limiter) AddRate(limit, period int, region string) {
+	//TODO
+}
+
+// Enqueue registers a LimitedDoer with the Limiter to be executed at a later
+// time, when the allowance to perform the task is available.
+func (l *Limiter) Enqueue(task LimitedDoer) error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	if reg, ok := l.regions[request.region]; ok && reg.allowance() > 0 {
-		l.regions[request.region].reserve()
-		go l.regions[request.region].execute(request)
+	if reg, ok := l.regions[task.Region()]; ok && reg.allowance() > 0 {
+		l.regions[task.Region()].reserve()
+		go l.regions[task.Region()].execute(task)
 
 	} else {
 		if !ok {
-			return fmt.Errorf("Attempt to queue unregistered region '%s'", request.region)
+			return fmt.Errorf("Cannot queue for unknown region '%s'", task.Region())
 		}
-		l.regions[request.region].requests.Push(request)
+		l.regions[task.Region()].tasks.Push(task)
 	}
 	return nil
 }
@@ -113,8 +136,8 @@ func (r *region) reserve() {
 	}
 }
 
-func (r *region) execute(request request) {
-	request.do()
+func (r *region) execute(task LimitedDoer) {
+	task.Do()
 	lim.lock.Lock()
 	for _, rate := range r.rates {
 		rate.thisTick++
@@ -123,8 +146,8 @@ func (r *region) execute(request request) {
 }
 
 func (r *region) useAllowance() {
-	for r.allowance() > 0 && r.requests.Peek() != nil {
+	for r.allowance() > 0 && r.tasks.Peek() != nil {
 		r.reserve()
-		go r.execute(r.requests.Poll().(request))
+		go r.execute(r.tasks.Poll().(LimitedDoer))
 	}
 }
