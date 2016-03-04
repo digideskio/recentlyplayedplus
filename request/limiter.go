@@ -11,7 +11,7 @@ import (
 // RateInfo describes a rate to be added to the limiter
 type RateInfo struct {
 	// The max number of requests allowed for a given time period
-	max uint64
+	max uint32
 	// The server region for which this rate applies
 	region string
 	// Number of seconds within which the max requests can occur
@@ -23,7 +23,7 @@ type RateInfo struct {
 // regions (as opposed to holding many limiters).
 type Limiter struct {
 	regions      map[string]*region
-	clock        uint64
+	clock        uint32
 	secondTicker <-chan time.Time
 	lock         sync.Mutex
 }
@@ -42,7 +42,7 @@ type rate struct {
 	// in that second
 	history []uint32
 	// The max number of requests allowed for a given time period
-	max uint64
+	max uint32
 	// The number of requests that occurred in this second
 	thisTick uint32
 	// The remaining number of requests that can occur given time period.
@@ -54,10 +54,7 @@ type rate struct {
 var lim *Limiter
 
 func init() {
-	lim = &Limiter{
-		regions:      make(map[string]*region),
-		secondTicker: time.Tick(1 * time.Second),
-	}
+	lim = NewLimiter()
 	go func() {
 		//Every second, refresh all the rate objects.
 		for range lim.secondTicker {
@@ -81,6 +78,13 @@ func (r *rate) tick() {
 	r.thisTick = 0
 }
 
+func NewLimiter() *Limiter {
+	return &Limiter{
+		regions:      make(map[string]*region),
+		secondTicker: time.Tick(1 * time.Second),
+	}
+}
+
 // Add Region registers with this limiter object a new region with the called
 // ${name}. Errs if the region to add is already registered with this limiter.
 func (l *Limiter) AddRegion(name string) error {
@@ -95,8 +99,19 @@ func (l *Limiter) AddRegion(name string) error {
 	return nil
 }
 
-func (l *Limiter) AddRate(limit, period int, region string) {
-	//TODO
+func (l *Limiter) AddRate(limit, period uint32, region string) error {
+	reg, ok := l.regions[region]
+	if !ok {
+		return fmt.Errorf("Cannot add rate for unknown region '%s'", region)
+	}
+	reg.rates = append(reg.rates, rate{
+		history:   make([]uint32, period, period),
+		max:       limit,
+		thisTick:  0,
+		allowance: limit,
+		period:    period,
+	})
+	return nil
 }
 
 // Enqueue registers a LimitedDoer with the Limiter to be executed at a later
