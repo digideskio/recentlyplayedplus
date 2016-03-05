@@ -24,12 +24,13 @@ type RateInfo struct {
 type Limiter struct {
 	regions      map[string]*region
 	clock        uint32
-	secondTicker <-chan time.Time
+	secondTicker *time.Ticker
 	lock         sync.Mutex
+	isStopped    bool
 }
 
 type region struct {
-	rates []rate
+	rates []*rate
 	//outstanding requests for this region
 	//TODO: This queue is synchronized. It doesn't need to be because sync
 	// is handled at the limiter level (because of the clock). So, I'll switch
@@ -41,8 +42,6 @@ type rate struct {
 	// An array of seconds, with values representing the number of requests made
 	// in that second
 	history []uint32
-	// The max number of requests allowed for a given time period
-	max uint32
 	// The number of requests that occurred in this second
 	thisTick uint32
 	// The remaining number of requests that can occur given time period.
@@ -51,43 +50,39 @@ type rate struct {
 	period uint32
 }
 
-var lim *Limiter
-
-func init() {
-	lim = NewLimiter()
-	go func() {
-		//Every second, refresh all the rate objects.
-		for range lim.secondTicker {
-			lim.lock.Lock()
-			defer lim.lock.Unlock()
-			for _, region := range lim.regions {
-				for _, rate := range region.rates {
-					rate.tick()
-				}
-				region.useAllowance()
-			}
-			lim.clock++
-		}
-	}()
-}
-
-func (r *rate) tick() {
-	idx := lim.clock % r.max
-	r.allowance += r.history[idx]
-	r.history[idx] = r.thisTick
-	r.thisTick = 0
-}
-
+// NewLimiter creates a Limiter object with its ticker running, and ultimately
+// ready to be used with the remainder of the Limiter member functions.
 func NewLimiter() *Limiter {
-	return &Limiter{
+	ret := &Limiter{
 		regions:      make(map[string]*region),
-		secondTicker: time.Tick(1 * time.Second),
+		secondTicker: time.NewTicker(1 * time.Second),
+		isStopped:    false,
 	}
+	go ret.asyncUpdate()
+	return ret
 }
 
-// Add Region registers with this limiter object a new region with the called
-// ${name}. Errs if the region to add is already registered with this limiter.
+// Stop signals the halting of the ticker of the Limiter object and
+// causes the Limiter to err on enqueues made after the ticker is successfully
+// stopped . This function should be called to allow the Limiter object to be
+// garbage collected. No guarantees are made that no enqueues will be admitted
+// or processed between the calling of this function and the stopping of the
+// ticker, but currently blocked requests will not be performed.
+func (l *Limiter) Stop() {
+	l.lock.Lock()
+	l.isStopped = true
+	l.lock.Unlock()
+}
+
+// AddRegion registers with this limiter object a new region with the called
+// ${name}. Errs if the region to add is already registered with this limiter,
+// or if the limiter has been stopped.
 func (l *Limiter) AddRegion(name string) error {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if l.isStopped {
+		return fmt.Errorf("Limiter has been stopped")
+	}
 	_, alreadyExists := l.regions[name]
 	if alreadyExists {
 		return fmt.Errorf("Region %s already exists!", name)
@@ -99,14 +94,23 @@ func (l *Limiter) AddRegion(name string) error {
 	return nil
 }
 
+// AddRate registers a new rate with the region specified within this limiter.
+// A limiter will only allow a task to be performed once there is remaining
+// allowance within EVERY rate for the region which the task is enqueued for.
+// This errs if the region specified doesn't exist in the limiter, or if the
+// limiter has been stopped.
 func (l *Limiter) AddRate(limit, period uint32, region string) error {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if l.isStopped {
+		return fmt.Errorf("Limiter has been stopped")
+	}
 	reg, ok := l.regions[region]
 	if !ok {
 		return fmt.Errorf("Cannot add rate for unknown region '%s'", region)
 	}
-	reg.rates = append(reg.rates, rate{
+	reg.rates = append(reg.rates, &rate{
 		history:   make([]uint32, period, period),
-		max:       limit,
 		thisTick:  0,
 		allowance: limit,
 		period:    period,
@@ -115,21 +119,65 @@ func (l *Limiter) AddRate(limit, period uint32, region string) error {
 }
 
 // Enqueue registers a LimitedDoer with the Limiter to be executed at a later
-// time, when the allowance to perform the task is available.
-func (l *Limiter) Enqueue(task LimitedDoer) error {
+// time, when the allowance to perform the task is available. Returns a uint32
+// representing the remaining allowance at the time of this function call,
+// before subtracting the cost of this task. i.e. 1 means the next enqueue may
+// require that the task be queued for later execution, and 0 means that the
+// current task has been queued for later execution.
+// Errs if the given region doesn't exist or if the Limiter has been stopped.
+func (l *Limiter) Enqueue(task LimitedDoer, region string) (uint32, error) {
 	l.lock.Lock()
 	defer l.lock.Unlock()
-	if reg, ok := l.regions[task.Region()]; ok && reg.allowance() > 0 {
-		l.regions[task.Region()].reserve()
-		go l.regions[task.Region()].execute(task)
-
+	if l.isStopped {
+		return 0, fmt.Errorf("Limiter has been stopped")
+	}
+	var position uint32
+	if reg, ok := l.regions[region]; ok && reg.allowance() > 0 {
+		position = reg.allowance()
+		l.regions[region].reserve()
+		go l.execute(task, region)
 	} else {
 		if !ok {
-			return fmt.Errorf("Cannot queue for unknown region '%s'", task.Region())
+			return 0, fmt.Errorf("Cannot queue for unknown region '%s'", region)
 		}
-		l.regions[task.Region()].tasks.Push(task)
+		l.regions[region].tasks.Push(task)
+		position = 0
 	}
-	return nil
+	return position, nil
+}
+
+// Stopped returns true if this Limiter has had Stop() called on it.
+// Returns false otherwise.
+func (l *Limiter) Stopped() bool {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	return l.isStopped
+}
+
+func (l *Limiter) asyncUpdate() {
+	//Every second, refresh all the rate objects.
+	for range l.secondTicker.C {
+		l.lock.Lock()
+		if l.isStopped {
+			l.lock.Unlock()
+			return
+		}
+		for _, region := range l.regions {
+			for _, rate := range region.rates {
+				rate.tick(l.clock)
+			}
+		}
+		l.clock++
+		l.useAllowance()
+		l.lock.Unlock()
+	}
+}
+
+func (r *rate) tick(clock uint32) {
+	idx := clock % r.period
+	r.allowance += r.history[idx]
+	r.history[idx] = r.thisTick
+	r.thisTick = 0
 }
 
 func (r *region) allowance() (allowance uint32) {
@@ -151,18 +199,21 @@ func (r *region) reserve() {
 	}
 }
 
-func (r *region) execute(task LimitedDoer) {
+func (l *Limiter) execute(task LimitedDoer, region string) {
 	task.Do()
-	lim.lock.Lock()
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	r := l.regions[region]
 	for _, rate := range r.rates {
 		rate.thisTick++
 	}
-	lim.lock.Unlock()
 }
 
-func (r *region) useAllowance() {
-	for r.allowance() > 0 && r.tasks.Peek() != nil {
-		r.reserve()
-		go r.execute(r.tasks.Poll().(LimitedDoer))
+func (l *Limiter) useAllowance() {
+	for name, r := range l.regions {
+		for r.allowance() > 0 && r.tasks.Peek() != nil {
+			r.reserve()
+			go l.execute(r.tasks.Poll().(LimitedDoer), name)
+		}
 	}
 }

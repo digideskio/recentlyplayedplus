@@ -8,8 +8,13 @@ type LimitedDoer interface {
 	//Performs the task that this object... does. Called by the limiter when there
 	// is allowance for the task to be done in the given region.
 	Do()
-	// Returns the region that this task should be performed in.
-	Region() string
+}
+
+//A limiter class to be used with the Riot API requests.
+var lim *Limiter
+
+func init() {
+	lim = NewLimiter()
 }
 
 // Request contains information about an HTTP request to make to the Riot API.
@@ -38,8 +43,4 @@ func GetMatchlist(region string, summonerid int64, apiKey string) Matchlist {
 
 func (r *request) Do() {
 
-}
-
-func (r *request) Region() string {
-	return r.region
 }
