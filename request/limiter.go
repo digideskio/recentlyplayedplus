@@ -35,7 +35,8 @@ type region struct {
 	//TODO: This queue is synchronized. It doesn't need to be because sync
 	// is handled at the limiter level (because of the clock). So, I'll switch
 	// this out when I have time to implement my own non-thread-safe queue.
-	tasks *lang.Queue
+	tasks         *lang.Queue
+	hasZeroPeriod bool
 }
 
 type rate struct {
@@ -88,8 +89,9 @@ func (l *Limiter) AddRegion(name string) error {
 		return fmt.Errorf("Region %s already exists!", name)
 	}
 	l.regions[name] = &region{
-		tasks: lang.NewQueue(),
-		rates: nil,
+		tasks:         lang.NewQueue(),
+		rates:         nil,
+		hasZeroPeriod: false,
 	}
 	return nil
 }
@@ -98,7 +100,9 @@ func (l *Limiter) AddRegion(name string) error {
 // A limiter will only allow a task to be performed once there is remaining
 // allowance within EVERY rate for the region which the task is enqueued for.
 // This errs if the region specified doesn't exist in the limiter, or if the
-// limiter has been stopped.
+// limiter has been stopped. Adding a rate with a period of zero will create
+// a rate which never has its allowance replenish - calls to Enqueue after this
+// point will return an error.
 func (l *Limiter) AddRate(limit, period uint32, region string) error {
 	l.lock.Lock()
 	defer l.lock.Unlock()
@@ -115,6 +119,9 @@ func (l *Limiter) AddRate(limit, period uint32, region string) error {
 		allowance: limit,
 		period:    period,
 	})
+	if period == 0 {
+		reg.hasZeroPeriod = true
+	}
 	return nil
 }
 
@@ -139,6 +146,8 @@ func (l *Limiter) Enqueue(task LimitedDoer, region string) (uint32, error) {
 	} else {
 		if !ok {
 			return 0, fmt.Errorf("Cannot queue for unknown region '%s'", region)
+		} else if reg.hasZeroPeriod {
+			return 0, fmt.Errorf("No more requests are allowed for region '%s'", region)
 		}
 		l.regions[region].tasks.Push(task)
 		position = 0
@@ -159,6 +168,7 @@ func (l *Limiter) asyncUpdate() {
 	for range l.secondTicker.C {
 		l.lock.Lock()
 		if l.isStopped {
+			l.secondTicker.Stop()
 			l.lock.Unlock()
 			return
 		}
@@ -174,6 +184,9 @@ func (l *Limiter) asyncUpdate() {
 }
 
 func (r *rate) tick(clock uint32) {
+	if r.period == 0 {
+		return
+	}
 	idx := clock % r.period
 	r.allowance += r.history[idx]
 	r.history[idx] = r.thisTick
