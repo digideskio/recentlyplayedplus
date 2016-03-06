@@ -1,4 +1,4 @@
-package request
+package types
 
 //Matchlist returned by the Riot API. This struct only captures a subset of the
 // fields returned by the entire API call - the ones relevant to this purpose.
