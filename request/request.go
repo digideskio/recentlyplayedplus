@@ -1,7 +1,10 @@
 package request
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"strings"
 
 	"github.com/thomasmmitchell/recentlyplayedplus/config"
@@ -33,33 +36,68 @@ func init() {
 // tracking of the request method is not necessary.
 type request struct {
 	url  string
-	body chan string
+	body chan []byte
 	err  chan error
 }
 
 // GetSummoners retrieves information about the specified summoners, given
 // their summoner name and region. An API Key must be configured.
-func GetSummoners(region string, names ...string) types.Summoner {
+func GetSummoners(region string, names ...string) (types.Summoner, error) {
 	endpoint := fmt.Sprintf("/api/lol/%s/v1.4/summoner/by-name/%s", region, strings.Join(names, ", "))
-	req := request{
-		url:  glueURL(getBaseURL(region), endpoint, config.APIKey),
-		body: make(chan string),
-		err:  make(chan error),
+	req := getBaseRequest(region, endpoint)
+	//Throwing away queue position for now. Can be used for logging later.
+	_, err := lim.Enqueue(req, region)
+	if err != nil {
+		return types.Summoner{}, err
 	}
-	lim.Enqueue(req, region)
-	//TODO: Read the result, unmarshal it
-	return types.Summoner{}
+	var response []byte
+	select {
+	case response = <-req.body:
+	case err = <-req.err:
+		return types.Summoner{}, err
+	}
+	ret := types.Summoner{}
+	json.Unmarshal(response, &ret)
+	return ret, nil
 }
 
-// GetMatchlist retrieves a summoner's recent match history, given their region
+// GetRecentGames retrieves a summoner's recent match history, given their region
 // and region-unique SummonerID. An API Key must be configured.
-func GetMatchlist(region string, summonerid int64, apiKey string) types.Matchlist {
-	//TODO
-	return types.Matchlist{}
+func GetRecentGames(region string, summonerid int64, apiKey string) (types.Matchlist, error) {
+	endpoint := fmt.Sprintf("/api/lol/%s/v1.3/game/by-summoner/%d", region, summonerid)
+	req := getBaseRequest(region, endpoint)
+	//Throwing away queue position for now. Can be used for logging later.
+	_, err := lim.Enqueue(req, region)
+	if err != nil {
+		return types.Matchlist{}, err
+	}
+	var response []byte
+	select {
+	case response = <-req.body:
+	case err = <-req.err:
+		return types.Matchlist{}, err
+	}
+	ret := types.Matchlist{}
+	json.Unmarshal(response, &ret)
+	return ret, nil
 }
 
 func (r request) Do() {
-
+	resp, err := http.Get(r.url)
+	if err != nil {
+		r.err <- err
+		return
+	}
+	if resp.StatusCode/100 != 2 {
+		r.err <- fmt.Errorf("Request returned '%s'", resp.Status)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		r.err <- err
+		return
+	}
+	r.body <- body
 }
 
 func getBaseURL(region string) string {
@@ -68,4 +106,12 @@ func getBaseURL(region string) string {
 
 func glueURL(base, endpoint, devKey string) string {
 	return fmt.Sprintf("%s%s?api_key=%s", base, endpoint, devKey)
+}
+
+func getBaseRequest(region, endpoint string) request {
+	return request{
+		url:  glueURL(getBaseURL(region), endpoint, config.APIKey),
+		body: make(chan []byte, 1),
+		err:  make(chan error, 1),
+	}
 }
