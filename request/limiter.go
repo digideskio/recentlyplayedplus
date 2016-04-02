@@ -8,16 +8,6 @@ import (
 	"github.com/hishboy/gocommons/lang"
 )
 
-// RateInfo describes a rate to be added to the limiter
-type RateInfo struct {
-	// The max number of requests allowed for a given time period
-	max uint32
-	// The server region for which this rate applies
-	region string
-	// Number of seconds within which the max requests can occur
-	period uint32
-}
-
 // Limiter restricts the rate at which incoming LimitedDoer objects can perform
 // their tasks. The rates to which limits are held can be split into distinct
 // regions (as opposed to holding many limiters).

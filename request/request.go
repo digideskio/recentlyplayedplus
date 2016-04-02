@@ -26,7 +26,6 @@ var lim *Limiter
 
 func init() {
 	lim = NewLimiter()
-	//TODO: Set up regions and rates
 }
 
 // Request contains information about an HTTP request to make to the Riot API.

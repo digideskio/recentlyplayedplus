@@ -1,0 +1,9 @@
+---
+regions:
+  na:
+  - period: 10
+    max: 10
+  - period: 600
+    max: 500
+  - period: 3
+    max: 2

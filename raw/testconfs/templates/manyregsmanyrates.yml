@@ -1,0 +1,23 @@
+---
+regions:
+  na:
+  - period: 10
+    max: 10
+  - period: 600
+    max: 500
+  - period: 3
+    max: 2
+  euw:
+  - period: 11
+    max: 9
+  - period: 601
+    max: 499
+  - period: 4
+    max: 1
+  kr:
+  - period: 12
+    max: 8
+  - period: 602
+    max: 498
+  - period: 5
+    max: 0
