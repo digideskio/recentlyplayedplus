@@ -12,6 +12,7 @@ import (
 )
 
 var configPrefix string = os.Getenv("GOPATH") + "/src/github.com/thomasmmitchell/recentlyplayedplus/raw/testconfs/output/"
+var configFile string
 
 func numRegionsIs(expected int) bool {
 	return len(Regions()) == expected
@@ -28,7 +29,9 @@ func numRatesIs(expected int) bool {
 }
 
 func registeredRegionsMatch(expected map[string][]types.Rate) bool {
-	numRegionsIs(len(expected))
+	if !numRegionsIs(len(expected)) {
+		return false
+	}
 	configured := Regions()
 	for reg, rates := range configured {
 		exprates, ok := expected[reg]
@@ -60,9 +63,8 @@ func containsSameRates(first, second []types.Rate) bool {
 }
 
 var _ = Describe("Config", func() {
-	var configFile string
 
-	BeforeEach(func() {
+	JustBeforeEach(func() {
 		err := LoadConfig(configPrefix + configFile)
 		Ω(err).ShouldNot(HaveOccurred())
 	})
@@ -73,12 +75,15 @@ var _ = Describe("Config", func() {
 		Context("With one region", func() {
 
 			Context("With one rate", func() {
-				configFile = "onereg.yml"
 
-				expectedRegions = make(map[string][]types.Rate)
-				expectedRegions["na"] = []types.Rate{
-					{Period: 10, Max: 10},
-				}
+				BeforeEach(func() {
+					configFile = "onereg.yml"
+
+					expectedRegions = make(map[string][]types.Rate)
+					expectedRegions["na"] = []types.Rate{
+						{Period: 10, Max: 10},
+					}
+				})
 
 				It("should register only one region", func() {
 					Ω(numRegionsIs(1)).Should(BeTrue())
@@ -94,14 +99,16 @@ var _ = Describe("Config", func() {
 			})
 
 			Context("With many rates", func() {
-				configFile = "manyrates.yml"
+				BeforeEach(func() {
+					configFile = "manyrates.yml"
 
-				expectedRegions = make(map[string][]types.Rate)
-				expectedRegions["na"] = []types.Rate{
-					{Period: 10, Max: 10},
-					{Period: 600, Max: 500},
-					{Period: 3, Max: 2},
-				}
+					expectedRegions = make(map[string][]types.Rate)
+					expectedRegions["na"] = []types.Rate{
+						{Period: 10, Max: 10},
+						{Period: 600, Max: 500},
+						{Period: 3, Max: 2},
+					}
+				})
 
 				It("should register only one region", func() {
 					Ω(numRegionsIs(1)).Should(BeTrue())
@@ -119,18 +126,20 @@ var _ = Describe("Config", func() {
 
 		Context("With many regions", func() {
 			Context("With one rate each", func() {
-				configFile = "manyregs.yml"
+				BeforeEach(func() {
+					configFile = "manyregs.yml"
 
-				expectedRegions = make(map[string][]types.Rate)
-				expectedRegions["na"] = []types.Rate{
-					{Period: 10, Max: 10},
-				}
-				expectedRegions["euw"] = []types.Rate{
-					{Period: 11, Max: 9},
-				}
-				expectedRegions["kr"] = []types.Rate{
-					{Period: 12, Max: 8},
-				}
+					expectedRegions = make(map[string][]types.Rate)
+					expectedRegions["na"] = []types.Rate{
+						{Period: 10, Max: 10},
+					}
+					expectedRegions["euw"] = []types.Rate{
+						{Period: 11, Max: 9},
+					}
+					expectedRegions["kr"] = []types.Rate{
+						{Period: 12, Max: 8},
+					}
+				})
 
 				It("should register three regions", func() {
 					Ω(numRegionsIs(3)).Should(BeTrue())
@@ -146,24 +155,26 @@ var _ = Describe("Config", func() {
 			})
 
 			Context("With many rates each", func() {
-				configFile = "manyregmanyrates.yml"
+				BeforeEach(func() {
+					configFile = "manyregsmanyrates.yml"
 
-				expectedRegions = make(map[string][]types.Rate)
-				expectedRegions["na"] = []types.Rate{
-					{Period: 10, Max: 10},
-					{Period: 600, Max: 500},
-					{Period: 3, Max: 2},
-				}
-				expectedRegions["euw"] = []types.Rate{
-					{Period: 11, Max: 9},
-					{Period: 601, Max: 499},
-					{Period: 4, Max: 1},
-				}
-				expectedRegions["kr"] = []types.Rate{
-					{Period: 12, Max: 8},
-					{Period: 602, Max: 498},
-					{Period: 5, Max: 0},
-				}
+					expectedRegions = make(map[string][]types.Rate)
+					expectedRegions["na"] = []types.Rate{
+						{Period: 10, Max: 10},
+						{Period: 600, Max: 500},
+						{Period: 3, Max: 2},
+					}
+					expectedRegions["euw"] = []types.Rate{
+						{Period: 11, Max: 9},
+						{Period: 601, Max: 499},
+						{Period: 4, Max: 1},
+					}
+					expectedRegions["kr"] = []types.Rate{
+						{Period: 12, Max: 8},
+						{Period: 602, Max: 498},
+						{Period: 5, Max: 0},
+					}
+				})
 
 				It("should register three regions", func() {
 					Ω(numRegionsIs(3)).Should(BeTrue())

@@ -1,26 +1,41 @@
 package config
 
-import "github.com/thomasmmitchell/recentlyplayedplus/types"
+import (
+	"io/ioutil"
+	"os"
+
+	"gopkg.in/yaml.v2"
+
+	"github.com/thomasmmitchell/recentlyplayedplus/types"
+)
 
 //Config holds information from a configuration file.
-type Config struct {
+type config struct {
 	//APIKey is the Riot Games API Key that tracks your apps API calls
 	APIKey string
 	//The applicable regions for requests to be made in
 	Regions map[string][]types.Rate
 }
 
+var conf config
+
 func LoadConfig(path string) error {
-	//TODO
-	return nil
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	buf, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	err = yaml.Unmarshal(buf, &conf)
+	return err
 }
 
 func ApiKey() string {
-	//TODO
-	return ""
+	return conf.APIKey
 }
 
 func Regions() map[string][]types.Rate {
-	//TODO
-	return nil
+	return conf.Regions
 }

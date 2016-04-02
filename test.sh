@@ -5,4 +5,4 @@ spruce merge "raw\\testconfs\\templates\\manyregs.yml" "raw\\api_key.yml" > "raw
 spruce merge "raw\\testconfs\\templates\\manyregsmanyrates.yml" "raw\api_key.yml" > "raw\\testconfs\\output\\manyregsmanyrates.yml" 
 spruce merge "raw\\testconfs\\templates\\onereg.yml" "raw\\api_key.yml" > "raw\\testconfs\\output\\onereg.yml" 
 
-ginkgo * 
+ginkgo -noColor -slowSpecThreshold 8 * 
