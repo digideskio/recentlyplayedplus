@@ -1,9 +1,7 @@
----
-regions:
-  na:
-  - period: 10
-    max: 10
-  - period: 600
-    max: 500
-  - period: 3
-    max: 2
+rates:
+  - max: 10
+    period: 10
+  - max: 500
+    period: 600
+  - max: 2
+    period: 3

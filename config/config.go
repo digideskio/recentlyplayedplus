@@ -14,7 +14,8 @@ type config struct {
 	//APIKey is the Riot Games API Key that tracks your apps API calls
 	APIKey string
 	//The applicable regions for requests to be made in
-	Regions map[string][]types.Rate
+	Regions []string
+	Rates   []types.Rate
 }
 
 var conf config
@@ -36,6 +37,10 @@ func ApiKey() string {
 	return conf.APIKey
 }
 
-func Regions() map[string][]types.Rate {
+func Regions() []string {
 	return conf.Regions
+}
+
+func Rates() []types.Rate {
+	return conf.Rates
 }

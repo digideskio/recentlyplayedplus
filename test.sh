@@ -1,8 +1,16 @@
+#!/bin/bash
 set -e
 
-spruce merge "raw\\testconfs\\templates\\manyrates.yml" "raw\\api_key.yml" > "raw\\testconfs\\output\\manyrates.yml" 
-spruce merge "raw\\testconfs\\templates\\manyregs.yml" "raw\\api_key.yml" > "raw\\testconfs\\output\\manyregs.yml" 
-spruce merge "raw\\testconfs\\templates\\manyregsmanyrates.yml" "raw\api_key.yml" > "raw\\testconfs\\output\\manyregsmanyrates.yml" 
-spruce merge "raw\\testconfs\\templates\\onereg.yml" "raw\\api_key.yml" > "raw\\testconfs\\output\\onereg.yml" 
+declare -r templates="raw/testconfs/templates"
+declare -r output="raw/testconfs/output"
+declare -r apikey="raw/api_key.yml"
+declare -r spruceAPI="spruce merge ${apikey}"
+
+$spruceAPI "${templates}/onereg.yml" \
+           "${templates}/onerate.yml"     > "${output}/oneregonerate.yml" 
+$spruceAPI "${templates}/onereg.yml" \
+           "${templates}/manyrates.yml"   > "${output}/oneregmanyrates.yml" 
+$spruceAPI "${templates}/manyregs.yml" \
+           "${templates}/onerate.yml"     > "${output}/manyregsonerate.yml" 
 
 ginkgo -noColor -slowSpecThreshold 8 * 

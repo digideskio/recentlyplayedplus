@@ -1,5 +1,4 @@
 ---
-regions:
-  na:
-  - period: 10
-    max: 10
+regions: [ na ]
+
+  

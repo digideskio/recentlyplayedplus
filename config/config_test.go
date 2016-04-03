@@ -3,6 +3,7 @@ package config_test
 import (
 	"os"
 	"reflect"
+	"sort"
 
 	. "github.com/thomasmmitchell/recentlyplayedplus/config"
 	"github.com/thomasmmitchell/recentlyplayedplus/types"
@@ -18,39 +19,33 @@ func numRegionsIs(expected int) bool {
 	return len(Regions()) == expected
 }
 
-//Only supports all regions having the same number of rates, which is fine for tests.
 func numRatesIs(expected int) bool {
-	for _, rates := range Regions() {
-		if len(rates) != expected {
-			return false
-		}
-	}
-	return true
+	return len(Rates()) == expected
 }
 
-func registeredRegionsMatch(expected map[string][]types.Rate) bool {
+func regionsAreCorrect(expected []string) bool {
 	if !numRegionsIs(len(expected)) {
 		return false
 	}
 	configured := Regions()
-	for reg, rates := range configured {
-		exprates, ok := expected[reg]
-		if !ok {
-			return false
-		}
-		if !containsSameRates(rates, exprates) {
+	sort.Strings(configured)
+	sort.Strings(expected)
+	for i, v := range configured {
+		if v != expected[i] {
 			return false
 		}
 	}
 	return true
 }
 
-func containsSameRates(first, second []types.Rate) bool {
-	if len(first) != len(second) {
+func ratesAreCorrect(expected []types.Rate) bool {
+	if !numRatesIs(len(expected)) {
 		return false
 	}
-	for _, r1 := range first {
-		for _, r2 := range second {
+	configured := Rates()
+	// O(n^2), because I don't want to implement sort for types.Rate.
+	for _, r1 := range configured {
+		for _, r2 := range expected {
 			if reflect.DeepEqual(r1, r2) {
 				goto next
 			}
@@ -70,123 +65,73 @@ var _ = Describe("Config", func() {
 	})
 
 	Context("When loading regions", func() {
-		var expectedRegions map[string][]types.Rate
+		var expectedRegions []string
 
 		Context("With one region", func() {
-
-			Context("With one rate", func() {
-
-				BeforeEach(func() {
-					configFile = "onereg.yml"
-
-					expectedRegions = make(map[string][]types.Rate)
-					expectedRegions["na"] = []types.Rate{
-						{Period: 10, Max: 10},
-					}
-				})
-
-				It("should register only one region", func() {
-					Ω(numRegionsIs(1)).Should(BeTrue())
-				})
-
-				It("should only have one rate", func() {
-					Ω(numRatesIs(1)).Should(BeTrue())
-				})
-
-				Specify("the rate should have the correct constraints", func() {
-					Ω(registeredRegionsMatch(expectedRegions)).Should(BeTrue())
-				})
+			BeforeEach(func() {
+				configFile = "oneregonerate.yml"
+				expectedRegions = []string{"na"}
 			})
 
-			Context("With many rates", func() {
-				BeforeEach(func() {
-					configFile = "manyrates.yml"
+			It("should register only one region", func() {
+				Ω(numRegionsIs(1)).Should(BeTrue())
+			})
 
-					expectedRegions = make(map[string][]types.Rate)
-					expectedRegions["na"] = []types.Rate{
-						{Period: 10, Max: 10},
-						{Period: 600, Max: 500},
-						{Period: 3, Max: 2},
-					}
-				})
-
-				It("should register only one region", func() {
-					Ω(numRegionsIs(1)).Should(BeTrue())
-				})
-
-				It("should have registered three rates", func() {
-					Ω(numRatesIs(3)).Should(BeTrue())
-				})
-
-				Specify("all three rates should have the correct constraints", func() {
-					Ω(registeredRegionsMatch(expectedRegions)).Should(BeTrue())
-				})
+			Specify("the region should have the expected value", func() {
+				Ω(regionsAreCorrect(expectedRegions)).Should(BeTrue())
 			})
 		})
 
 		Context("With many regions", func() {
-			Context("With one rate each", func() {
-				BeforeEach(func() {
-					configFile = "manyregs.yml"
-
-					expectedRegions = make(map[string][]types.Rate)
-					expectedRegions["na"] = []types.Rate{
-						{Period: 10, Max: 10},
-					}
-					expectedRegions["euw"] = []types.Rate{
-						{Period: 11, Max: 9},
-					}
-					expectedRegions["kr"] = []types.Rate{
-						{Period: 12, Max: 8},
-					}
-				})
-
-				It("should register three regions", func() {
-					Ω(numRegionsIs(3)).Should(BeTrue())
-				})
-
-				Specify("each region should have only one rate", func() {
-					Ω(numRatesIs(1)).Should(BeTrue())
-				})
-
-				Specify("each rate should have the correct constraints", func() {
-					Ω(registeredRegionsMatch(expectedRegions)).Should(BeTrue())
-				})
+			BeforeEach(func() {
+				configFile = "manyregsonerate.yml"
+				expectedRegions = []string{"na", "euw", "kr", "eune", "lan", "las", "oce", "tr", "ru", "pbe"}
 			})
 
-			Context("With many rates each", func() {
-				BeforeEach(func() {
-					configFile = "manyregsmanyrates.yml"
+			It("should register ten regions", func() {
+				Ω(numRegionsIs(10)).Should(BeTrue())
+			})
 
-					expectedRegions = make(map[string][]types.Rate)
-					expectedRegions["na"] = []types.Rate{
-						{Period: 10, Max: 10},
-						{Period: 600, Max: 500},
-						{Period: 3, Max: 2},
-					}
-					expectedRegions["euw"] = []types.Rate{
-						{Period: 11, Max: 9},
-						{Period: 601, Max: 499},
-						{Period: 4, Max: 1},
-					}
-					expectedRegions["kr"] = []types.Rate{
-						{Period: 12, Max: 8},
-						{Period: 602, Max: 498},
-						{Period: 5, Max: 0},
-					}
-				})
+			Specify("each rate should have the correct constraints", func() {
+				Ω(regionsAreCorrect(expectedRegions)).Should(BeTrue())
+			})
+		})
+	})
 
-				It("should register three regions", func() {
-					Ω(numRegionsIs(3)).Should(BeTrue())
-				})
+	Context("When loading rates", func() {
+		var expectedRates []types.Rate
 
-				Specify("each region should have three rates", func() {
-					Ω(numRatesIs(3)).Should(BeTrue())
-				})
+		Context("With one rate", func() {
+			BeforeEach(func() {
+				configFile = "oneregonerate.yml"
 
-				Specify("each rate should have the correct constraints", func() {
-					Ω(registeredRegionsMatch(expectedRegions)).Should(BeTrue())
-				})
+				expectedRates = []types.Rate{{Period: 10, Max: 10}}
+			})
+
+			It("should have one rate", func() {
+				Ω(numRatesIs(1)).Should(BeTrue())
+			})
+
+			Specify("the rate should have the correct constraints", func() {
+				Ω(ratesAreCorrect(expectedRates)).Should(BeTrue())
+			})
+		})
+		Context("With many rates", func() {
+			BeforeEach(func() {
+				configFile = "oneregmanyrates.yml"
+				expectedRates = []types.Rate{
+					{Period: 10, Max: 10},
+					{Period: 600, Max: 500},
+					{Period: 3, Max: 2},
+				}
+			})
+
+			It("should have 3 rates", func() {
+				Ω(numRatesIs(3)).Should(BeTrue())
+			})
+
+			Specify("the rate should have the correct constraints", func() {
+				Ω(ratesAreCorrect(expectedRates)).Should(BeTrue())
 			})
 		})
 	})
